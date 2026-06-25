@@ -154,6 +154,35 @@
     .group-head .gdesc{display:none;}
   }
   @media(prefers-reduced-motion:reduce){*{transition:none!important;}html{scroll-behavior:auto;}}
+  /* ---------- admin ---------- */
+  .admin-wrap{max-width:1100px;margin:0 auto;padding:28px 28px 80px;}
+  .admin-lock-box{max-width:480px;margin:60px auto;background:var(--surface);border:1px solid var(--line-strong);padding:28px;}
+  .admin-lock-box h2{font-family:var(--display);font-weight:600;font-size:22px;margin:0 0 6px;}
+  .admin-lock-box p{font-size:13px;color:var(--muted);margin:0 0 14px;}
+  .admin-lock-warn{font-size:12px;font-family:var(--mono);color:var(--warn);background:var(--warn-soft);border:1px solid #e8aa9a;padding:8px 10px;margin-bottom:16px;}
+  .admin-bar{display:flex;align-items:center;gap:12px;margin-bottom:22px;flex-wrap:wrap;}
+  .admin-bar h2{font-family:var(--display);font-weight:600;font-size:22px;margin:0;flex:1;}
+  .pending-badge{font-family:var(--mono);font-size:11px;background:var(--warn-soft);color:var(--warn);border:1px solid #e8aa9a;padding:4px 10px;}
+  .admin-tabs{display:flex;gap:0;border-bottom:2px solid var(--ink);margin-bottom:20px;}
+  .admin-tab{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;padding:10px 18px;background:none;border:none;cursor:pointer;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-2px;}
+  .admin-tab.active{color:var(--ink);border-bottom-color:var(--accent);}
+  .admin-tbl{width:100%;border-collapse:collapse;font-size:13px;}
+  .admin-tbl th{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);background:var(--paper);border-bottom:1px solid var(--line-strong);padding:10px 12px;text-align:left;}
+  .admin-tbl td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top;}
+  .admin-tbl tr:last-child td{border-bottom:none;}
+  .admin-tbl .ptitle{font-family:var(--display);font-weight:500;font-size:14px;}
+  .admin-tbl .puse{color:var(--muted);font-size:12px;margin-top:2px;}
+  .badge{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;display:inline-block;border:1px solid;}
+  .badge.pending{background:#FFF7E6;color:#7a4d00;border-color:#e8cc8a;}
+  .badge.approved{background:#E8F5EC;color:#0a5c2a;border-color:#8eccaa;}
+  .badge.rejected{background:var(--warn-soft);color:var(--warn);border-color:#e8aa9a;}
+  .admin-actions{display:flex;gap:6px;flex-wrap:wrap;}
+  .abtn{font-family:var(--mono);font-size:11px;letter-spacing:.04em;text-transform:uppercase;padding:5px 10px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;}
+  .abtn:hover{background:#0c4a70;}
+  .abtn.ghost{background:none;color:var(--accent);}
+  .abtn.ghost:hover{background:var(--accent-soft);}
+  .abtn.danger{background:none;color:var(--warn);border-color:var(--warn);}
+  .abtn.danger:hover{background:var(--warn-soft);}
 </style>
 </head>
 <body>
@@ -171,6 +200,7 @@
     <button data-page="library" class="active">Prompt Library</button>
     <button data-page="pe">Prompt Engineering</button>
     <button data-page="tools">Approved Tools</button>
+    <button data-page="admin">Admin</button>
   </div>
 </nav>
 <div class="page active" id="page-library">
@@ -211,6 +241,62 @@
     <p class="pe-intro" style="margin-bottom:18px;">Use only approved tools, in line with policy. Never enter client, personal or sensitive data.</p>
     <div class="tooling"><table><thead><tr><th>Tool</th><th>Main use case</th><th>Access link</th><th>Access process</th><th>Usage guidance</th></tr></thead><tbody id="toolsBody"></tbody></table></div>
     <p class="note">Tooling and access routes change — confirm against current organisational policy before use.</p>
+  </div>
+</div>
+<!-- ======== ADMIN PAGE ======== -->
+<div class="page" id="page-admin">
+  <div class="admin-wrap">
+    <div id="adminLock">
+      <div class="admin-lock-box">
+        <h2>Maintainer access</h2>
+        <p>Enter your Supabase <strong>service role key</strong> to approve, reject, edit and delete prompts. Find it at <strong>Supabase → Project Settings → API → service_role secret</strong>.</p>
+        <div class="admin-lock-warn">This key bypasses all database security rules. Never commit it to the repository or share it with non-maintainers.</div>
+        <div class="field"><label>Service role key</label><input type="password" id="adminKeyInput" placeholder="eyJ…" autocomplete="off"></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:10px;">
+          <button class="btn" id="adminUnlockBtn">Unlock</button>
+        </div>
+      </div>
+    </div>
+    <div id="adminPanel" style="display:none">
+      <div class="admin-bar">
+        <h2>Prompt management</h2>
+        <span class="pending-badge" id="adminPendingBadge" style="display:none"></span>
+        <button class="btn" id="adminAddBtn">＋ Add approved</button>
+        <button class="btn ghost" id="adminRefreshBtn">Refresh</button>
+        <button class="btn ghost" id="adminLockBtn" style="color:var(--warn);border-color:var(--warn)">Lock</button>
+      </div>
+      <div class="admin-tabs">
+        <button class="admin-tab active" data-atab="pending">Pending</button>
+        <button class="admin-tab" data-atab="all">All prompts</button>
+      </div>
+      <div id="adminContent"></div>
+    </div>
+  </div>
+</div>
+<!-- ======== ADMIN EDIT MODAL ======== -->
+<div class="overlay" id="adminOverlay">
+  <div class="modal">
+    <div class="modal-head"><h3 id="adminModalTitle">Edit prompt</h3><button class="x" id="closeAdminModal">×</button></div>
+    <div class="modal-body">
+      <div class="field"><label>Section</label><select id="af-section"></select></div>
+      <div class="field"><label>Workstream links (optional)</label><select id="af-ws" multiple size="4" style="font-family:var(--mono);font-size:12.5px;"></select><div class="hint">Ctrl/Cmd-click for more than one.</div></div>
+      <div class="field"><label>Prompt title</label><input id="af-title" placeholder="Short, clear name"></div>
+      <div class="field"><label>Use when</label><input id="af-use" placeholder="When would someone reach for this?"></div>
+      <div class="field"><label>System prompt</label><textarea id="af-sys" rows="5" placeholder="Defines the assistant's role…"></textarea></div>
+      <div class="field"><label>User template</label><textarea id="af-usr" rows="6" placeholder="The fill-in template with {PLACEHOLDERS}…"></textarea></div>
+      <div class="field"><label>Tags</label><input id="af-tags" placeholder="comma, separated, tags"></div>
+      <div class="field"><label>Status</label>
+        <select id="af-status">
+          <option value="approved">Approved</option>
+          <option value="pending">Pending</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" id="cancelAdminModal">Cancel</button>
+      <button class="btn" id="saveAdminModal">Save</button>
+    </div>
   </div>
 </div>
 <div class="overlay" id="overlay">
@@ -503,6 +589,167 @@ $("saveModal").onclick=async()=>{
   btn.disabled=false;btn.textContent='Submit prompt';
 };
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&overlay.classList.contains('open'))closeModal();});
+
+/* ---------- admin ---------- */
+let adminKey=sessionStorage.getItem('adm')||'';
+let adminPrompts=[];
+let adminTab='pending';
+let editingId=null;
+
+const aHead=()=>({apikey:adminKey,Authorization:'Bearer '+adminKey,'Content-Type':'application/json'});
+
+function showAdminPanel(){$('adminLock').style.display='none';$('adminPanel').style.display='';loadAdminData();}
+function lockAdmin(){adminKey='';sessionStorage.removeItem('adm');$('adminLock').style.display='';$('adminPanel').style.display='none';$('adminKeyInput').value='';}
+
+$('adminUnlockBtn').onclick=async()=>{
+  const key=$('adminKeyInput').value.trim();if(!key)return;
+  try{
+    const r=await fetch(`${REST}/prompts?limit=1&select=id`,{headers:{apikey:key,Authorization:'Bearer '+key}});
+    if(!r.ok)throw new Error();
+    adminKey=key;sessionStorage.setItem('adm',key);showAdminPanel();
+  }catch(e){alert('Could not connect with that key. Make sure it is the service role key from Supabase → Project Settings → API.');}
+};
+$('adminKeyInput').addEventListener('keydown',e=>{if(e.key==='Enter')$('adminUnlockBtn').click();});
+$('adminLockBtn').onclick=lockAdmin;
+$('adminRefreshBtn').onclick=loadAdminData;
+
+async function loadAdminData(){
+  $('adminContent').innerHTML='<div style="padding:20px;font-family:var(--mono);font-size:13px;color:var(--muted)">Loading…</div>';
+  try{
+    const r=await fetch(`${REST}/prompts?select=*&order=created_at.desc`,{headers:aHead()});
+    if(r.status===401||r.status===403){lockAdmin();alert('Key rejected — please unlock again.');return;}
+    if(!r.ok)throw new Error();
+    adminPrompts=await r.json();
+    renderAdminTable();
+  }catch(e){$('adminContent').innerHTML='<div class="empty-note" style="margin-top:10px;">Failed to load prompts. Check your connection.</div>';}
+}
+
+function renderAdminTable(){
+  const pending=adminPrompts.filter(p=>p.status==='pending');
+  const badge=$('adminPendingBadge');
+  if(pending.length){badge.textContent=`${pending.length} pending`;badge.style.display='';}else{badge.style.display='none';}
+  const list=adminTab==='pending'?pending:adminPrompts;
+  if(!list.length){
+    $('adminContent').innerHTML=`<div class="empty-note" style="margin-top:10px;">${adminTab==='pending'?'No pending prompts — all clear.':'No prompts yet.'}</div>`;
+    return;
+  }
+  const rows=list.map(p=>`
+    <tr data-id="${p.id}">
+      <td><div class="ptitle">${esc(p.title)}</div><div class="puse">${esc(p.use_when||'')}</div></td>
+      <td style="white-space:nowrap;font-family:var(--mono);font-size:11px;color:var(--muted)">${esc(p.section)}</td>
+      <td><span class="badge ${p.status}">${p.status}</span></td>
+      <td style="white-space:nowrap;font-family:var(--mono);font-size:11px;color:var(--faint)">${new Date(p.created_at).toLocaleDateString()}</td>
+      <td><div class="admin-actions">
+        ${p.status==='pending'?`<button class="abtn" data-action="approve">Approve</button><button class="abtn danger" data-action="reject">Reject</button>`:''}
+        <button class="abtn ghost" data-action="edit">Edit</button>
+        <button class="abtn danger" data-action="del">Delete</button>
+      </div></td>
+    </tr>`).join('');
+  $('adminContent').innerHTML=`<div style="border:1px solid var(--line);background:var(--surface);overflow-x:auto;">
+    <table class="admin-tbl"><thead><tr><th>Prompt</th><th>Section</th><th>Status</th><th>Submitted</th><th>Actions</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
+
+document.addEventListener('click',async e=>{
+  const btn=e.target.closest('[data-action]');if(!btn)return;
+  const row=btn.closest('tr[data-id]');if(!row)return;
+  if(!btn.closest('#adminContent'))return;
+  const id=row.dataset.id;
+  const p=adminPrompts.find(x=>x.id===id);if(!p)return;
+  const action=btn.dataset.action;
+  if(action==='approve'){await adminPatch(id,{status:'approved'});}
+  else if(action==='reject'){if(!confirm('Reject this prompt? It will be hidden from the library.'))return;await adminPatch(id,{status:'rejected'});}
+  else if(action==='del'){if(!confirm(`Permanently delete "${p.title}"? This cannot be undone.`))return;await adminDelete(id);}
+  else if(action==='edit'){openAdminEdit(p);}
+});
+
+async function adminPatch(id,body){
+  try{
+    const r=await fetch(`${REST}/prompts?id=eq.${id}`,{method:'PATCH',headers:{...aHead(),Prefer:'return=minimal'},body:JSON.stringify(body)});
+    if(!r.ok)throw new Error();
+    const p=adminPrompts.find(x=>x.id===id);if(p)Object.assign(p,body);
+    renderAdminTable();
+  }catch(e){alert('Update failed — check your connection and key.');}
+}
+async function adminDelete(id){
+  try{
+    const r=await fetch(`${REST}/prompts?id=eq.${id}`,{method:'DELETE',headers:{...aHead(),Prefer:'return=minimal'}});
+    if(!r.ok)throw new Error();
+    adminPrompts=adminPrompts.filter(x=>x.id!==id);
+    renderAdminTable();
+  }catch(e){alert('Delete failed.');}
+}
+
+/* admin tabs */
+document.querySelectorAll('.admin-tab').forEach(t=>{
+  t.onclick=()=>{adminTab=t.dataset.atab;document.querySelectorAll('.admin-tab').forEach(x=>x.classList.toggle('active',x===t));renderAdminTable();};
+});
+
+/* admin edit / add modal */
+const adminOverlay=$('adminOverlay');
+
+function fillAdminSelects(secId,wsIds){
+  const gen=allSections().filter(s=>s.group==='general');
+  const proj=allSections().filter(s=>s.group==='project');
+  $('af-section').innerHTML=
+    `<optgroup label="General">`+gen.map(s=>`<option value="${s.id}"${s.id===secId?' selected':''}>${esc(s.title)}</option>`).join('')+`</optgroup>`+
+    `<optgroup label="Projects / Workstreams">`+proj.map(s=>`<option value="${s.id}"${s.id===secId?' selected':''}>${esc(s.title)}</option>`).join('')+`</optgroup>`;
+  $('af-ws').innerHTML=proj.map(s=>`<option value="${s.id}"${(wsIds||[]).includes(s.id)?' selected':''}>${esc(s.title)}</option>`).join('');
+}
+function openAdminEdit(p){
+  editingId=p?p.id:null;
+  $('adminModalTitle').textContent=p?'Edit prompt':'Add approved prompt';
+  fillAdminSelects(p?p.section:null,p?p.workstreams:[]);
+  $('af-title').value=p?p.title:'';
+  $('af-use').value=p?p.use_when:'';
+  $('af-sys').value=p?p.system_prompt:'';
+  $('af-usr').value=p?p.user_template:'';
+  $('af-tags').value=p?(p.tags||[]).join(', '):'';
+  $('af-status').value=p?p.status:'approved';
+  adminOverlay.classList.add('open');
+}
+function closeAdminModal(){adminOverlay.classList.remove('open');editingId=null;}
+$('closeAdminModal').onclick=closeAdminModal;
+$('cancelAdminModal').onclick=closeAdminModal;
+adminOverlay.addEventListener('click',e=>{if(e.target===adminOverlay)closeAdminModal();});
+$('adminAddBtn').onclick=()=>openAdminEdit(null);
+
+$('saveAdminModal').onclick=async()=>{
+  const title=$('af-title').value.trim(),sys=$('af-sys').value.trim(),usr=$('af-usr').value.trim();
+  if(!title||!sys||!usr){alert('Title, system prompt and user template are required.');return;}
+  const body={
+    section:$('af-section').value,
+    workstreams:[...$('af-ws').selectedOptions].map(o=>o.value),
+    title,use_when:$('af-use').value.trim()||'—',
+    system_prompt:sys,user_template:usr,
+    tags:$('af-tags').value.split(',').map(t=>t.trim().toLowerCase()).filter(Boolean),
+    status:$('af-status').value
+  };
+  const btn=$('saveAdminModal');btn.disabled=true;btn.textContent='Saving…';
+  try{
+    if(editingId){
+      await adminPatch(editingId,body);
+    }else{
+      const r=await fetch(`${REST}/prompts`,{method:'POST',headers:{...aHead(),Prefer:'return=representation'},body:JSON.stringify(body)});
+      if(!r.ok)throw new Error();
+      const created=await r.json();
+      adminPrompts.unshift(created[0]);
+      renderAdminTable();
+    }
+    closeAdminModal();
+  }catch(e){alert('Save failed.');}
+  btn.disabled=false;btn.textContent='Save';
+};
+
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&adminOverlay.classList.contains('open'))closeAdminModal();});
+
+/* restore admin session if key already stored */
+const _origNavClick=document.querySelectorAll('.pagenav button');
+_origNavClick.forEach(b=>{
+  if(b.dataset.page==='admin'){
+    b.addEventListener('click',()=>{if(adminKey)showAdminPanel();},true);
+  }
+});
 
 /* ---------- boot ---------- */
 (async()=>{await loadData();render();})();
