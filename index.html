@@ -827,33 +827,28 @@ let appStarted=false;
 async function startApp(session){
   if(appStarted)return;
   appStarted=true;
+  currentSession=session;
+  // Get admin role — fail silently
   try{
-    currentSession=session;
-    let roleRow=null;
-    try{
-      const {data}=await supabaseClient.from('user_roles').select('role').eq('user_id',session.user.id).maybeSingle();
-      roleRow=data;
-    }catch(e){/* user_roles may not exist yet — default to non-admin */}
-    isAdmin=roleRow?.role==='admin';
-    document.getElementById('userEmailDisplay').textContent=session.user.email||'';
-    document.getElementById('userBar').style.display='flex';
-    document.getElementById('loginScreen').style.display='none';
-    const adminBtn=document.querySelector('.pagenav button[data-page="admin"]');
-    if(adminBtn)adminBtn.style.display=isAdmin?'':'none';
-    await loadData();
-    render();
-  }catch(e){
-    console.error('startApp error:',e);
-    appStarted=false;
-    showLogin();
-  }
+    const {data}=await supabaseClient.from('user_roles').select('role').eq('user_id',session.user.id).maybeSingle();
+    isAdmin=data?.role==='admin';
+  }catch(e){isAdmin=false;}
+  // Show the app — no turning back from here
+  document.getElementById('userEmailDisplay').textContent=session.user.email||'';
+  document.getElementById('userBar').style.display='flex';
+  document.getElementById('loginScreen').style.display='none';
+  const adminBtn=document.querySelector('.pagenav button[data-page="admin"]');
+  if(adminBtn)adminBtn.style.display=isAdmin?'':'none';
+  // Load data and render — errors stay silent, fallback data is used
+  try{await loadData();}catch(e){console.error('loadData error:',e);}
+  try{render();}catch(e){console.error('render error:',e);}
 }
 
 supabaseClient.auth.onAuthStateChange(async(event,session)=>{
-  if(session&&(event==='SIGNED_IN'||event==='INITIAL_SESSION')){
+  if(event==='INITIAL_SESSION'&&session){
     await startApp(session);
   }else if(event==='TOKEN_REFRESHED'&&session){
-    currentSession=session; // silently keep token fresh
+    currentSession=session;
   }else if(event==='SIGNED_OUT'){
     appStarted=false;currentSession=null;isAdmin=false;
     document.getElementById('userBar').style.display='none';
@@ -896,28 +891,22 @@ document.getElementById('verifyBtn').addEventListener('click',async()=>{
   }
   const btn=document.getElementById('verifyBtn');
   btn.disabled=true;btn.textContent='Verifying…';
-  // Try type:'email' first, fall back to type:'magiclink'
-  let {data,error}=await supabaseClient.auth.verifyOtp({email:pendingEmail,token:code,type:'email'});
-  if(error){
-    const r2=await supabaseClient.auth.verifyOtp({email:pendingEmail,token:code,type:'magiclink'});
-    data=r2.data;error=r2.error;
-  }
+  const {error}=await supabaseClient.auth.verifyOtp({email:pendingEmail,token:code,type:'email'});
   if(error){
     msg.textContent=error.message||'Invalid or expired code. Request a new one.';
     msg.style.color='var(--warn)';msg.style.display='block';
     btn.disabled=false;btn.textContent='Sign in';
-  }else{
-    if(data?.session){await startApp(data.session);return;}
-    await new Promise(r=>setTimeout(r,2000));
-    if(appStarted)return;
-    const {data:{session:s}}=await supabaseClient.auth.getSession();
-    if(s){await startApp(s);}
-    else{
-      msg.textContent='Verification timed out — please request a new code.';
-      msg.style.color='var(--warn)';msg.style.display='block';
-      btn.disabled=false;btn.textContent='Sign in';
-    }
+    return;
   }
+  // Poll for session — verifyOtp succeeds server-side before SDK stores the session locally
+  for(let i=0;i<20;i++){
+    const {data:{session}}=await supabaseClient.auth.getSession();
+    if(session){await startApp(session);return;}
+    await new Promise(r=>setTimeout(r,500));
+  }
+  msg.textContent='Verification timed out — please request a new code.';
+  msg.style.color='var(--warn)';msg.style.display='block';
+  btn.disabled=false;btn.textContent='Sign in';
 });
 
 document.getElementById('backBtn').addEventListener('click',()=>{
