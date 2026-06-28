@@ -204,8 +204,8 @@
     <div id="loginStep2" style="display:none;">
       <p style="color:var(--muted);font-size:14px;margin:0 0 6px;">Enter the sign-in code sent to</p>
       <p id="loginEmailDisplay" style="font-family:var(--mono);font-size:13px;color:var(--ink);margin:0 0 20px;word-break:break-all;"></p>
-      <input id="loginCode" type="text" inputmode="numeric" placeholder="12345678" maxlength="8" autocomplete="one-time-code"
-        style="width:100%;font-family:var(--mono);font-size:28px;letter-spacing:6px;text-align:center;padding:12px;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);margin-bottom:10px;">
+      <input id="loginCode" type="text" inputmode="numeric" placeholder="enter code" autocomplete="one-time-code"
+        style="width:100%;font-family:var(--mono);font-size:22px;letter-spacing:4px;text-align:center;padding:12px;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);margin-bottom:10px;">
       <button id="verifyBtn" class="btn" style="width:100%;padding:12px 24px;font-size:13px;">Sign in</button>
       <button id="backBtn" style="margin-top:10px;background:none;border:none;color:var(--muted);font-size:12px;font-family:var(--mono);cursor:pointer;text-decoration:underline;">Use a different email</button>
     </div>
@@ -891,7 +891,7 @@ document.getElementById('verifyBtn').addEventListener('click',async()=>{
   const code=document.getElementById('loginCode').value.trim();
   const msg=document.getElementById('loginMsg');
   msg.style.display='none';
-  if(!/^\d{6,8}$/.test(code)){
+  if(!code||code.length<4){
     msg.textContent='Enter the sign-in code from your email.';msg.style.color='var(--warn)';msg.style.display='block';return;
   }
   const btn=document.getElementById('verifyBtn');
