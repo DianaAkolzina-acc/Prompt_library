@@ -900,8 +900,18 @@ document.getElementById('verifyBtn').addEventListener('click',async()=>{
   if(error){
     msg.textContent='Invalid or expired code. Request a new one.';msg.style.color='var(--warn)';msg.style.display='block';
     btn.disabled=false;btn.textContent='Sign in';
-  }else if(data?.session){
-    await startApp(data.session);
+  }else{
+    // verifyOtp may return session directly or fire onAuthStateChange first.
+    // Wait briefly for the event, then fall back to getSession().
+    if(data?.session){await startApp(data.session);return;}
+    await new Promise(r=>setTimeout(r,600));
+    if(appStarted)return;
+    const {data:{session:s}}=await supabaseClient.auth.getSession();
+    if(s){await startApp(s);}
+    else{
+      msg.textContent='Could not sign in — please request a new code.';msg.style.color='var(--warn)';msg.style.display='block';
+      btn.disabled=false;btn.textContent='Sign in';
+    }
   }
 });
 
