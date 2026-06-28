@@ -367,7 +367,9 @@ const LIVE = SUPABASE_URL.startsWith("http") && !SUPABASE_ANON.startsWith("YOUR_
 const REST = SUPABASE_URL + "/rest/v1";
 const HEAD = {apikey:SUPABASE_ANON, Authorization:"Bearer "+SUPABASE_ANON, "Content-Type":"application/json"};
 
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+  auth: { storage: window.sessionStorage, persistSession: true }
+});
 let currentSession = null;
 let isAdmin = false;
 function authHead(){
