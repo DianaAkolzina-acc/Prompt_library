@@ -7,16 +7,16 @@
 
 create table if not exists public.prompts (
   id            uuid primary key default gen_random_uuid(),
-  section       text not null,                 -- section id, e.g. 'writing' or 'ws-ehm'
-  workstreams   text[] not null default '{}',  -- optional linked workstream section ids
-  title         text not null,
-  use_when      text not null default '',
-  system_prompt text not null,
-  user_template text not null,
+  section       text not null check (char_length(section) between 1 and 100),
+  workstreams   text[] not null default '{}',
+  title         text not null check (char_length(title) between 2 and 300),
+  use_when      text not null default '' check (char_length(use_when) <= 1000),
+  system_prompt text not null check (char_length(system_prompt) between 10 and 15000),
+  user_template text not null check (char_length(user_template) between 10 and 15000),
   tags          text[] not null default '{}',
-  status        text not null default 'pending'  -- 'pending' | 'approved' | 'rejected'
+  status        text not null default 'pending'
                  check (status in ('pending','approved','rejected')),
-  author        text not null default 'anonymous',
+  author        text not null default 'anonymous' check (char_length(author) <= 100),
   created_at    timestamptz not null default now()
 );
 
@@ -63,13 +63,18 @@ create policy "read approved prompts"
   using (status = 'approved');
 
 -- Anyone may submit a prompt, but ONLY as 'pending'. They cannot self-approve.
+-- Array lengths also capped to prevent oversized payloads at the DB layer.
 drop policy if exists "submit pending prompts" on public.prompts;
 create policy "submit pending prompts"
   on public.prompts for insert
-  with check (status = 'pending');
+  with check (
+    status = 'pending'
+    AND (workstreams is null OR cardinality(workstreams) <= 21)
+    AND (tags is null OR cardinality(tags) <= 20)
+  );
 
 -- No anon UPDATE or DELETE policies = those operations are denied.
--- Maintainers approve/reject from the Supabase dashboard (which bypasses RLS).
+-- Maintainers approve/reject via the Admin tab using the service role key.
 
 -- RATINGS — anyone can read aggregates and add a 1–5 vote; no edits/deletes.
 drop policy if exists "read ratings" on public.ratings;
@@ -85,3 +90,32 @@ create policy "add feedback" on public.feedback for insert with check (char_leng
 
 -- Expose the view to the API roles.
 grant select on public.prompt_rating_stats to anon, authenticated;
+
+-- ============================================================
+-- HARDENING: run this block against an EXISTING database to
+-- add field-length constraints that were not present before.
+-- Safe to run more than once — each uses IF NOT EXISTS logic.
+-- ============================================================
+do $$ begin
+  alter table public.prompts add constraint prompts_section_len   check (char_length(section) between 1 and 100);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table public.prompts add constraint prompts_title_len     check (char_length(title) between 2 and 300);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table public.prompts add constraint prompts_use_when_len  check (char_length(use_when) <= 1000);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table public.prompts add constraint prompts_sys_len       check (char_length(system_prompt) between 10 and 15000);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table public.prompts add constraint prompts_usr_len       check (char_length(user_template) between 10 and 15000);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table public.prompts add constraint prompts_author_len    check (char_length(author) <= 100);
+exception when duplicate_object then null; end $$;

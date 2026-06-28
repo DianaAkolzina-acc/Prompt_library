@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://eeoewoqjfqsvutjeolqb.supabase.co; img-src 'self' data:; object-src 'none'; base-uri 'self';">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Rolls-Royce Prompt Library</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -322,6 +324,18 @@
   </div>
 </div>
 <script>
+/* --- Security bootstrap (runs before anything else) --- */
+(function(){
+  if(location.protocol!=='https:'&&location.hostname!==''&&location.hostname!=='localhost'&&location.hostname!=='127.0.0.1'){
+    location.replace('https:'+location.href.slice(location.protocol.length));return;
+  }
+  if(window.self!==window.top){
+    try{window.top.location.replace(window.self.location.href);}
+    catch(e){document.body.innerHTML='<p style="padding:20px;font-family:sans-serif">This page cannot be loaded inside a frame.</p>';}
+    return;
+  }
+})();
+
 /* =====================================================================
    CONFIG — paste your Supabase project values here, then commit.
    Project URL + anon (public) key from: Supabase > Project Settings > API.
@@ -353,13 +367,30 @@ const main=$("main"), toc=$("toc"), empty=$("empty"), count=$("count"), banner=$
 
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function escAttr(s){return esc(s).replace(/"/g,'&quot;');}
+
+/* --- Rate limiting (localStorage-backed, degrades gracefully in private mode) --- */
+function checkRateLimit(key,max,ms){
+  const now=Date.now();let times;
+  try{times=JSON.parse(localStorage.getItem(key)||'[]');}catch(e){times=[];}
+  const recent=times.filter(t=>now-t<ms);
+  if(recent.length>=max)return false;
+  recent.push(now);
+  try{localStorage.setItem(key,JSON.stringify(recent.slice(-50)));}catch(e){}
+  return true;
+}
+/* --- Input length guard --- */
+function validateLength(val,min,max,label){
+  if(!val||val.length<min)throw new Error(label+' must be at least '+min+' character'+(min===1?'':'s')+'.');
+  if(val.length>max)throw new Error(label+' must be at most '+max+' characters (currently '+val.length+').');
+}
+
 function allSections(){return BASE_SECTIONS.concat(customSections);}
 function wsTitle(id){const s=allSections().find(x=>x.id===id);return s?s.title:id;}
 
 /* ---------- static pages ---------- */
-$("toolsBody").innerHTML=TOOLS.map(t=>`<tr><td><b>${t[0]}</b></td><td>${t[1]}</td><td>${t[2]}</td><td>${t[3]}</td><td>${t[4]}</td></tr>`).join('');
-$("peTechniques").innerHTML=TECHNIQUES.map(t=>`<div class="pe-card"><h4>${t.h}</h4><p>${t.p}</p><div class="ex"><b>Example</b>${esc(t.ex)}</div></div>`).join('');
-$("pePatterns").innerHTML=PATTERNS.map(t=>`<div class="pe-card"><h4>${t.h}</h4><p>${t.p}</p></div>`).join('');
+$("toolsBody").innerHTML=TOOLS.map(t=>`<tr><td><b>${esc(t[0])}</b></td><td>${esc(t[1])}</td><td>${esc(t[2])}</td><td>${esc(t[3])}</td><td>${esc(t[4])}</td></tr>`).join('');
+$("peTechniques").innerHTML=TECHNIQUES.map(t=>`<div class="pe-card"><h4>${esc(t.h)}</h4><p>${esc(t.p)}</p><div class="ex"><b>Example</b>${esc(t.ex)}</div></div>`).join('');
+$("pePatterns").innerHTML=PATTERNS.map(t=>`<div class="pe-card"><h4>${esc(t.h)}</h4><p>${esc(t.p)}</p></div>`).join('');
 
 /* ---------- page nav ---------- */
 const libControls=$("libControls");
@@ -398,11 +429,18 @@ async function loadData(){
 }
 
 async function submitPrompt(rec){
+  validateLength(rec.t,2,300,'Title');
+  validateLength(rec.sys,10,15000,'System prompt');
+  validateLength(rec.usr,10,15000,'User template');
+  if((rec.use||'').length>1000)throw new Error('Use when must be at most 1000 characters.');
+  if((rec.tags||[]).length>20)throw new Error('Too many tags (max 20).');
+  if(!checkRateLimit('rl_sub',3,3600000))throw new Error('rate_limit_sub');
   const body={section:rec.s,workstreams:rec.ws,title:rec.t,use_when:rec.use,system_prompt:rec.sys,user_template:rec.usr,tags:rec.tags,status:'pending'};
   const r=await fetch(`${REST}/prompts`,{method:'POST',headers:{...HEAD,Prefer:'return=minimal'},body:JSON.stringify(body)});
   if(!r.ok) throw new Error('submit failed');
 }
 async function postRating(id,value){
+  if(!checkRateLimit('rl_r_'+id,3,3600000))throw new Error('rate_limit');
   const r=await fetch(`${REST}/ratings`,{method:'POST',headers:{...HEAD,Prefer:'return=minimal'},body:JSON.stringify({prompt_id:id,value})});
   if(!r.ok) throw new Error('rating failed');
 }
@@ -411,6 +449,8 @@ async function refreshStat(id){
   stats[id]=s[0]?{avg:+s[0].avg,cnt:+s[0].cnt}:{avg:0,cnt:0};
 }
 async function postFeedback(id,bodyText){
+  validateLength(bodyText,1,2000,'Feedback');
+  if(!checkRateLimit('rl_fb',5,600000))throw new Error('rate_limit_fb');
   const r=await fetch(`${REST}/feedback`,{method:'POST',headers:{...HEAD,Prefer:'return=minimal'},body:JSON.stringify({prompt_id:id,body:bodyText})});
   if(!r.ok) throw new Error('feedback failed');
 }
@@ -520,7 +560,10 @@ main.addEventListener('click',async e=>{
     if(!LIVE){alert('Connect the database to rate prompts.');return;}
     const v=+e.target.dataset.star;
     try{await postRating(id,v);await refreshStat(id);cardEl.querySelector('.stars').innerHTML=starsHtml(id);cardEl.querySelector('.avg').textContent=avgLabel(id);}
-    catch(err){alert('Could not save your rating.');}
+    catch(err){
+      if(err.message==='rate_limit')alert("You've already rated this prompt recently. Please wait before rating again.");
+      else alert('Could not save your rating.');
+    }
     return;
   }
   if(e.target.closest('.fb-toggle')){e.stopPropagation();cardEl.querySelector('.fb-panel').classList.toggle('open');return;}
@@ -534,7 +577,11 @@ main.addEventListener('click',async e=>{
       const list=feedbackMap[id];
       cardEl.querySelector('.fb-list').innerHTML=list.map(f=>`<div class="fb-item">${esc(f.body)}<span class="ts">${esc(f.ts||'')}</span></div>`).join('');
       cardEl.querySelector('.fb-toggle').textContent=`Feedback (${list.length})`;
-    }catch(err){alert('Could not save your feedback.');}
+    }catch(err){
+      if(err.message==='rate_limit_fb')alert("You're submitting feedback too quickly. Please wait a few minutes.");
+      else if(err.message&&!err.message.includes('failed'))alert(err.message);
+      else alert('Could not save your feedback. Please try again.');
+    }
     return;
   }
   if(e.target.closest('.card-head'))cardEl.classList.toggle('open');
@@ -585,7 +632,11 @@ $("saveModal").onclick=async()=>{
     await submitPrompt({s:secId,ws,t:title,use:$("f-use").value.trim()||'—',sys,usr,tags});
     closeModal();
     alert('Thanks — your prompt has been submitted. It will appear once a maintainer approves it.');
-  }catch(err){alert('Could not submit your prompt. Please try again.');}
+  }catch(err){
+    if(err.message==='rate_limit_sub')alert("You've submitted too many prompts recently. Please wait before submitting again.");
+    else if(err.message&&!err.message.includes('submit failed'))alert(err.message);
+    else alert('Could not submit your prompt. Please try again.');
+  }
   btn.disabled=false;btn.textContent='Submit prompt';
 };
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&overlay.classList.contains('open'))closeModal();});
@@ -598,11 +649,21 @@ let editingId=null;
 
 const aHead=()=>({apikey:adminKey,Authorization:'Bearer '+adminKey,'Content-Type':'application/json'});
 
-function showAdminPanel(){$('adminLock').style.display='none';$('adminPanel').style.display='';loadAdminData();}
-function lockAdmin(){adminKey='';sessionStorage.removeItem('adm');$('adminLock').style.display='';$('adminPanel').style.display='none';$('adminKeyInput').value='';}
+/* Admin session timeout — auto-lock after 30 min of inactivity */
+let _adminTimer=null;
+function resetAdminTimer(){
+  clearTimeout(_adminTimer);
+  _adminTimer=setTimeout(()=>{if(adminKey){lockAdmin();alert('Admin session locked after 30 minutes of inactivity.');}},30*60*1000);
+}
+document.addEventListener('click',()=>{if(adminKey)resetAdminTimer();});
+document.addEventListener('keydown',()=>{if(adminKey)resetAdminTimer();});
+
+function showAdminPanel(){$('adminLock').style.display='none';$('adminPanel').style.display='';resetAdminTimer();loadAdminData();}
+function lockAdmin(){adminKey='';sessionStorage.removeItem('adm');clearTimeout(_adminTimer);$('adminLock').style.display='';$('adminPanel').style.display='none';$('adminKeyInput').value='';}
 
 $('adminUnlockBtn').onclick=async()=>{
-  const key=$('adminKeyInput').value.trim();if(!key)return;
+  const key=$('adminKeyInput').value.trim();
+  if(!key||key.length<40){alert('Invalid key. The service role key should be a long JWT token from Supabase → Project Settings → API.');return;}
   try{
     const r=await fetch(`${REST}/prompts?limit=1&select=id`,{headers:{apikey:key,Authorization:'Bearer '+key}});
     if(!r.ok)throw new Error();
