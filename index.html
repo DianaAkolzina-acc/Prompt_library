@@ -799,27 +799,55 @@ $('saveAdminModal').onclick=async()=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&adminOverlay.classList.contains('open'))closeAdminModal();});
 
 /* ---------- auth + boot ---------- */
-async function startApp(session){
-  currentSession=session;
-  const {data:roleRow}=await supabaseClient.from('user_roles').select('role').eq('user_id',session.user.id).maybeSingle();
-  isAdmin=roleRow?.role==='admin';
-  document.getElementById('userEmailDisplay').textContent=session.user.email||'';
-  document.getElementById('userBar').style.display='flex';
-  document.getElementById('loginScreen').style.display='none';
-  const adminBtn=document.querySelector('.pagenav button[data-page="admin"]');
-  if(adminBtn)adminBtn.style.display=isAdmin?'':'none';
-  await loadData();
-  render();
+function showLogin(){
+  document.getElementById('loginScreen').style.display='flex';
+  document.getElementById('userBar').style.display='none';
+}
+function showLoading(){
+  const msg=document.getElementById('loginMsg');
+  msg.textContent='Signing you in…';msg.style.color='var(--muted)';msg.style.display='block';
+  document.getElementById('signInBtn').style.display='none';
+  document.getElementById('loginEmail').style.display='none';
+  document.getElementById('loginScreen').style.display='flex';
 }
 
-supabaseClient.auth.onAuthStateChange((event,session)=>{
-  if(event==='SIGNED_IN'&&session){currentSession=session;startApp(session);}
-  else if(event==='SIGNED_OUT'){
-    currentSession=null;isAdmin=false;
-    document.getElementById('loginScreen').style.display='flex';
+let appStarted=false;
+async function startApp(session){
+  if(appStarted)return;
+  appStarted=true;
+  try{
+    currentSession=session;
+    let roleRow=null;
+    try{
+      const {data}=await supabaseClient.from('user_roles').select('role').eq('user_id',session.user.id).maybeSingle();
+      roleRow=data;
+    }catch(e){/* user_roles may not exist yet — default to non-admin */}
+    isAdmin=roleRow?.role==='admin';
+    document.getElementById('userEmailDisplay').textContent=session.user.email||'';
+    document.getElementById('userBar').style.display='flex';
+    document.getElementById('loginScreen').style.display='none';
+    const adminBtn=document.querySelector('.pagenav button[data-page="admin"]');
+    if(adminBtn)adminBtn.style.display=isAdmin?'':'none';
+    await loadData();
+    render();
+  }catch(e){
+    console.error('startApp error:',e);
+    appStarted=false;
+    showLogin();
+  }
+}
+
+supabaseClient.auth.onAuthStateChange(async(event,session)=>{
+  if(session&&(event==='SIGNED_IN'||event==='INITIAL_SESSION')){
+    await startApp(session);
+  }else if(event==='TOKEN_REFRESHED'&&session){
+    currentSession=session; // silently keep token fresh
+  }else if(event==='SIGNED_OUT'){
+    appStarted=false;currentSession=null;isAdmin=false;
     document.getElementById('userBar').style.display='none';
     document.querySelectorAll('.pagenav button').forEach(b=>b.classList.toggle('active',b.dataset.page==='library'));
     document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id==='page-library'));
+    showLogin();
   }
 });
 
@@ -848,9 +876,12 @@ document.getElementById('loginEmail').addEventListener('keydown',e=>{if(e.key===
 document.getElementById('signOutBtn').addEventListener('click',()=>supabaseClient.auth.signOut());
 
 (async()=>{
+  // If the URL contains a magic link token, show a loading state and let
+  // onAuthStateChange (SIGNED_IN) take over — don't race with getSession().
+  if(window.location.hash.includes('access_token')){showLoading();return;}
   const {data:{session}}=await supabaseClient.auth.getSession();
-  if(session){currentSession=session;await startApp(session);}
-  else document.getElementById('loginScreen').style.display='flex';
+  if(session)await startApp(session);
+  else showLogin();
 })();
 </script>
 </body>
