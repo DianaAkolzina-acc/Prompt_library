@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://eeoewoqjfqsvutjeolqb.supabase.co; img-src 'self' data:; object-src 'none'; base-uri 'self';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://eeoewoqjfqsvutjeolqb.supabase.co; img-src 'self' data:; object-src 'none'; base-uri 'self';">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Rolls-Royce Prompt Library</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -188,8 +188,24 @@
 </style>
 </head>
 <body>
+<div id="loginScreen" style="position:fixed;inset:0;z-index:200;background:var(--paper);display:flex;align-items:center;justify-content:center;">
+  <div style="text-align:center;max-width:360px;padding:48px 32px;background:var(--surface);border:1px solid var(--line-strong);">
+    <div style="font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);margin-bottom:16px;">Rolls-Royce · Accenture</div>
+    <h2 style="font-family:var(--display);font-size:26px;font-weight:600;margin:0 0 10px;letter-spacing:-.01em;">Prompt Library</h2>
+    <p style="color:var(--muted);font-size:14px;margin:0 0 6px;">Enter your Accenture email to receive a sign-in link.</p>
+    <p style="color:var(--faint);font-size:12px;font-family:var(--mono);margin:0 0 24px;">@accenture.com addresses only</p>
+    <input id="loginEmail" type="email" placeholder="you@accenture.com" autocomplete="email"
+      style="width:100%;font-family:var(--mono);font-size:13px;padding:10px 12px;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);margin-bottom:10px;">
+    <button id="signInBtn" class="btn" style="width:100%;padding:12px 24px;font-size:13px;">Send magic link</button>
+    <div id="loginMsg" style="margin-top:14px;font-family:var(--mono);font-size:12px;color:var(--muted);display:none;"></div>
+  </div>
+</div>
 <header class="hero">
   <div class="hero-inner">
+    <div id="userBar" style="display:none;justify-content:flex-end;align-items:center;gap:12px;margin-bottom:10px;">
+      <span id="userEmailDisplay" style="font-family:var(--mono);font-size:12px;color:var(--muted);"></span>
+      <button id="signOutBtn" class="btn ghost" style="font-size:11px;padding:5px 12px;">Sign out</button>
+    </div>
     <div class="eyebrow">Rolls-Royce · AI Prompt Library</div>
     <h1>Reusable prompts for your work on the account.</h1>
     <p class="lede">A shared, live library of system prompts and fill-in templates. Add prompts, rate what works, and leave feedback — saved for everyone. Placeholders only — never client or personal data.</p>
@@ -248,24 +264,13 @@
 <!-- ======== ADMIN PAGE ======== -->
 <div class="page" id="page-admin">
   <div class="admin-wrap">
-    <div id="adminLock">
-      <div class="admin-lock-box">
-        <h2>Maintainer access</h2>
-        <p>Enter your Supabase <strong>service role key</strong> to approve, reject, edit and delete prompts. Find it at <strong>Supabase → Project Settings → API → service_role secret</strong>.</p>
-        <div class="admin-lock-warn">This key bypasses all database security rules. Never commit it to the repository or share it with non-maintainers.</div>
-        <div class="field"><label>Service role key</label><input type="password" id="adminKeyInput" placeholder="eyJ…" autocomplete="off"></div>
-        <div style="display:flex;justify-content:flex-end;margin-top:10px;">
-          <button class="btn" id="adminUnlockBtn">Unlock</button>
-        </div>
-      </div>
-    </div>
-    <div id="adminPanel" style="display:none">
+    <div id="adminPanel">
       <div class="admin-bar">
         <h2>Prompt management</h2>
         <span class="pending-badge" id="adminPendingBadge" style="display:none"></span>
         <button class="btn" id="adminAddBtn">＋ Add approved</button>
         <button class="btn ghost" id="adminRefreshBtn">Refresh</button>
-        <button class="btn ghost" id="adminLockBtn" style="color:var(--warn);border-color:var(--warn)">Lock</button>
+        <button class="btn ghost" id="adminLockBtn" style="color:var(--warn);border-color:var(--warn)">Sign out</button>
       </div>
       <div class="admin-tabs">
         <button class="admin-tab active" data-atab="pending">Pending</button>
@@ -323,6 +328,7 @@
     </div>
   </div>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js" crossorigin="anonymous"></script>
 <script>
 /* --- Security bootstrap (runs before anything else) --- */
 (function(){
@@ -348,6 +354,17 @@ const SUPABASE_ANON = "sb_publishable_s9ndTr_9sj_14yJp2ISZ1w_HKvLZWlu";   // the
 const LIVE = SUPABASE_URL.startsWith("http") && !SUPABASE_ANON.startsWith("YOUR_");
 const REST = SUPABASE_URL + "/rest/v1";
 const HEAD = {apikey:SUPABASE_ANON, Authorization:"Bearer "+SUPABASE_ANON, "Content-Type":"application/json"};
+
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+let currentSession = null;
+let isAdmin = false;
+function authHead(){
+  return {
+    apikey: SUPABASE_ANON,
+    Authorization: 'Bearer ' + (currentSession ? currentSession.access_token : SUPABASE_ANON),
+    'Content-Type': 'application/json'
+  };
+}
 
 const BASE_SECTIONS=[{"n": "01", "id": "guides", "group": "general", "title": "Guidelines & Good Practice", "desc": "How to get good results and keep data safe."}, {"n": "02", "id": "overview", "group": "general", "title": "Overviews & Onboarding", "desc": "Explain a system and get people up to speed."}, {"n": "03", "id": "eng", "group": "general", "title": "Engineering & Code", "desc": "Light help with code, config and debugging."}, {"n": "04", "id": "writing", "group": "general", "title": "Writing & Documentation", "desc": "Change notes, summaries and cleaner text."}, {"n": "05", "id": "data", "group": "general", "title": "Data & Analysis", "desc": "Safe queries, interpreting output and lineage."}, {"n": "06", "id": "broad", "group": "general", "title": "Broad & Analytical Queries", "desc": "Cross-cutting analysis, digests and risk views."}, {"n": "07", "id": "finance", "group": "general", "title": "Financial, Commercial & Delivery", "desc": "Effort, cost, capacity and status reporting."}, {"n": "08", "id": "account", "group": "general", "title": "Account & Client Management", "desc": "Relationship, stakeholder and account health."}, {"n": "09", "id": "meetings", "group": "general", "title": "Meetings & Communication", "desc": "Agendas, notes, follow-ups and tricky talks."}, {"n": "10", "id": "schedule", "group": "general", "title": "Scheduling & Planning", "desc": "Calendars, timelines, priorities and capacity."}, {"n": "11", "id": "general", "group": "general", "title": "General & Decisions", "desc": "Everyday writing, thinking and decisions."}, {"n": "12", "id": "ws-gbs", "group": "project", "title": "GBS", "desc": "Workstream-specific prompts for GBS."}, {"n": "13", "id": "ws-controls", "group": "project", "title": "Controls / Engineering", "desc": "Workstream-specific prompts for Controls / Engineering."}, {"n": "14", "id": "ws-iip", "group": "project", "title": "IIP", "desc": "Workstream-specific prompts for IIP."}, {"n": "15", "id": "ws-bpf", "group": "project", "title": "BP&F", "desc": "Workstream-specific prompts for BP&F."}, {"n": "16", "id": "ws-wsaas", "group": "project", "title": "WSaaS", "desc": "Workstream-specific prompts for WSaaS."}, {"n": "17", "id": "ws-pmaas", "group": "project", "title": "PMaaS", "desc": "Workstream-specific prompts for PMaaS."}, {"n": "18", "id": "ws-maximo", "group": "project", "title": "Maximo AMS", "desc": "Workstream-specific prompts for Maximo AMS."}, {"n": "19", "id": "ws-cost", "group": "project", "title": "Cost Ecosystem", "desc": "Workstream-specific prompts for Cost Ecosystem."}, {"n": "20", "id": "ws-ehm", "group": "project", "title": "EHM", "desc": "Workstream-specific prompts for EHM."}, {"n": "21", "id": "ws-pmo", "group": "project", "title": "PMO", "desc": "Workstream-specific prompts for PMO."}];
 const TECHNIQUES=[{"h": "Zero-Shot", "p": "Ask for a task with no examples; the model relies on what it already knows. Best for simple, well-understood requests.", "ex": "Summarise this update in three bullets."}, {"h": "Few-Shot", "p": "Give a few examples first to show the format, style and approach you want, then the new input.", "ex": "Here are two example summaries… now summarise this one the same way."}, {"h": "Prompt Chaining", "p": "Link prompts in sequence, each building on the last, to break a complex task into manageable steps.", "ex": "1) Extract the key points. 2) Group them. 3) Draft the email from the groups."}, {"h": "Chain-of-Thought", "p": "Ask the model to show its reasoning step by step before the final answer — more transparent and often more reliable.", "ex": "Work through this step by step, then give your conclusion."}, {"h": "Tree-of-Thought", "p": "Have the model explore several solution paths and weigh them before committing to one.", "ex": "Give three different approaches, compare them, then recommend one."}, {"h": "ReAct", "p": "Alternate reasoning and action: Thought → Action → Observation, repeated until an answer is reached. Useful with tools.", "ex": "Reason about what to check, look it up, note what you found, then continue."}, {"h": "Knowledge Augmentation", "p": "Add external, current or specialist information straight into the prompt so the answer is grounded in it.", "ex": "Using the policy text below, answer the question…"}, {"h": "Input Semantics & Framing", "p": "Word choice, phrasing and structure change how the model understands a request. Small wording changes can shift the answer.", "ex": "Rephrase a vague ask into a specific, structured one."}];
@@ -396,10 +413,12 @@ $("pePatterns").innerHTML=PATTERNS.map(t=>`<div class="pe-card"><h4>${esc(t.h)}<
 const libControls=$("libControls");
 document.querySelectorAll('.pagenav button').forEach(b=>{
   b.onclick=()=>{
+    if(b.dataset.page==='admin'&&!isAdmin)return;
     document.querySelectorAll('.pagenav button').forEach(x=>x.classList.toggle('active',x===b));
     document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
     $("page-"+b.dataset.page).classList.add('active');
     libControls.style.display=(b.dataset.page==='library')?'':'none';
+    if(b.dataset.page==='admin')loadAdminData();
     window.scrollTo({top:0});
   };
 });
@@ -414,9 +433,9 @@ async function loadData(){
   }
   try{
     const [pr,st,fb]=await Promise.all([
-      fetch(`${REST}/prompts?status=eq.approved&select=*&order=created_at.asc`,{headers:HEAD}).then(r=>r.json()),
-      fetch(`${REST}/prompt_rating_stats?select=*`,{headers:HEAD}).then(r=>r.json()),
-      fetch(`${REST}/feedback?select=prompt_id,body,created_at&order=created_at.asc`,{headers:HEAD}).then(r=>r.json())
+      fetch(`${REST}/prompts?status=eq.approved&select=*&order=created_at.asc`,{headers:authHead()}).then(r=>r.json()),
+      fetch(`${REST}/prompt_rating_stats?select=*`,{headers:authHead()}).then(r=>r.json()),
+      fetch(`${REST}/feedback?select=prompt_id,body,created_at&order=created_at.asc`,{headers:authHead()}).then(r=>r.json())
     ]);
     prompts=pr.map(p=>({id:p.id,s:p.section,ws:p.workstreams||[],t:p.title,use:p.use_when,sys:p.system_prompt,usr:p.user_template,tags:p.tags||[]}));
     stats={}; st.forEach(s=>stats[s.prompt_id]={avg:+s.avg,cnt:+s.cnt});
@@ -436,22 +455,22 @@ async function submitPrompt(rec){
   if((rec.tags||[]).length>20)throw new Error('Too many tags (max 20).');
   if(!checkRateLimit('rl_sub',3,3600000))throw new Error('rate_limit_sub');
   const body={section:rec.s,workstreams:rec.ws,title:rec.t,use_when:rec.use,system_prompt:rec.sys,user_template:rec.usr,tags:rec.tags,status:'pending'};
-  const r=await fetch(`${REST}/prompts`,{method:'POST',headers:{...HEAD,Prefer:'return=minimal'},body:JSON.stringify(body)});
+  const r=await fetch(`${REST}/prompts`,{method:'POST',headers:{...authHead(),Prefer:'return=minimal'},body:JSON.stringify(body)});
   if(!r.ok) throw new Error('submit failed');
 }
 async function postRating(id,value){
   if(!checkRateLimit('rl_r_'+id,3,3600000))throw new Error('rate_limit');
-  const r=await fetch(`${REST}/ratings`,{method:'POST',headers:{...HEAD,Prefer:'return=minimal'},body:JSON.stringify({prompt_id:id,value})});
+  const r=await fetch(`${REST}/ratings`,{method:'POST',headers:{...authHead(),Prefer:'return=minimal'},body:JSON.stringify({prompt_id:id,value})});
   if(!r.ok) throw new Error('rating failed');
 }
 async function refreshStat(id){
-  const s=await fetch(`${REST}/prompt_rating_stats?prompt_id=eq.${id}&select=*`,{headers:HEAD}).then(r=>r.json());
+  const s=await fetch(`${REST}/prompt_rating_stats?prompt_id=eq.${id}&select=*`,{headers:authHead()}).then(r=>r.json());
   stats[id]=s[0]?{avg:+s[0].avg,cnt:+s[0].cnt}:{avg:0,cnt:0};
 }
 async function postFeedback(id,bodyText){
   validateLength(bodyText,1,2000,'Feedback');
   if(!checkRateLimit('rl_fb',5,600000))throw new Error('rate_limit_fb');
-  const r=await fetch(`${REST}/feedback`,{method:'POST',headers:{...HEAD,Prefer:'return=minimal'},body:JSON.stringify({prompt_id:id,body:bodyText})});
+  const r=await fetch(`${REST}/feedback`,{method:'POST',headers:{...authHead(),Prefer:'return=minimal'},body:JSON.stringify({prompt_id:id,body:bodyText})});
   if(!r.ok) throw new Error('feedback failed');
 }
 
@@ -642,43 +661,18 @@ $("saveModal").onclick=async()=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&overlay.classList.contains('open'))closeModal();});
 
 /* ---------- admin ---------- */
-let adminKey=sessionStorage.getItem('adm')||'';
 let adminPrompts=[];
 let adminTab='pending';
 let editingId=null;
 
-const aHead=()=>({apikey:adminKey,Authorization:'Bearer '+adminKey,'Content-Type':'application/json'});
-
-/* Admin session timeout — auto-lock after 30 min of inactivity */
-let _adminTimer=null;
-function resetAdminTimer(){
-  clearTimeout(_adminTimer);
-  _adminTimer=setTimeout(()=>{if(adminKey){lockAdmin();alert('Admin session locked after 30 minutes of inactivity.');}},30*60*1000);
-}
-document.addEventListener('click',()=>{if(adminKey)resetAdminTimer();});
-document.addEventListener('keydown',()=>{if(adminKey)resetAdminTimer();});
-
-function showAdminPanel(){$('adminLock').style.display='none';$('adminPanel').style.display='';resetAdminTimer();loadAdminData();}
-function lockAdmin(){adminKey='';sessionStorage.removeItem('adm');clearTimeout(_adminTimer);$('adminLock').style.display='';$('adminPanel').style.display='none';$('adminKeyInput').value='';}
-
-$('adminUnlockBtn').onclick=async()=>{
-  const key=$('adminKeyInput').value.trim();
-  if(!key||key.length<40){alert('Invalid key. The service role key should be a long JWT token from Supabase → Project Settings → API.');return;}
-  try{
-    const r=await fetch(`${REST}/prompts?limit=1&select=id`,{headers:{apikey:key,Authorization:'Bearer '+key}});
-    if(!r.ok)throw new Error();
-    adminKey=key;sessionStorage.setItem('adm',key);showAdminPanel();
-  }catch(e){alert('Could not connect with that key. Make sure it is the service role key from Supabase → Project Settings → API.');}
-};
-$('adminKeyInput').addEventListener('keydown',e=>{if(e.key==='Enter')$('adminUnlockBtn').click();});
-$('adminLockBtn').onclick=lockAdmin;
+$('adminLockBtn').onclick=()=>supabaseClient.auth.signOut();
 $('adminRefreshBtn').onclick=loadAdminData;
 
 async function loadAdminData(){
   $('adminContent').innerHTML='<div style="padding:20px;font-family:var(--mono);font-size:13px;color:var(--muted)">Loading…</div>';
   try{
-    const r=await fetch(`${REST}/prompts?select=*&order=created_at.desc`,{headers:aHead()});
-    if(r.status===401||r.status===403){lockAdmin();alert('Key rejected — please unlock again.');return;}
+    const r=await fetch(`${REST}/prompts?select=*&order=created_at.desc`,{headers:authHead()});
+    if(r.status===401||r.status===403){supabaseClient.auth.signOut();return;}
     if(!r.ok)throw new Error();
     adminPrompts=await r.json();
     renderAdminTable();
@@ -726,7 +720,7 @@ document.addEventListener('click',async e=>{
 
 async function adminPatch(id,body){
   try{
-    const r=await fetch(`${REST}/prompts?id=eq.${id}`,{method:'PATCH',headers:{...aHead(),Prefer:'return=minimal'},body:JSON.stringify(body)});
+    const r=await fetch(`${REST}/prompts?id=eq.${id}`,{method:'PATCH',headers:{...authHead(),Prefer:'return=minimal'},body:JSON.stringify(body)});
     if(!r.ok)throw new Error();
     const p=adminPrompts.find(x=>x.id===id);if(p)Object.assign(p,body);
     renderAdminTable();
@@ -734,7 +728,7 @@ async function adminPatch(id,body){
 }
 async function adminDelete(id){
   try{
-    const r=await fetch(`${REST}/prompts?id=eq.${id}`,{method:'DELETE',headers:{...aHead(),Prefer:'return=minimal'}});
+    const r=await fetch(`${REST}/prompts?id=eq.${id}`,{method:'DELETE',headers:{...authHead(),Prefer:'return=minimal'}});
     if(!r.ok)throw new Error();
     adminPrompts=adminPrompts.filter(x=>x.id!==id);
     renderAdminTable();
@@ -791,7 +785,7 @@ $('saveAdminModal').onclick=async()=>{
     if(editingId){
       await adminPatch(editingId,body);
     }else{
-      const r=await fetch(`${REST}/prompts`,{method:'POST',headers:{...aHead(),Prefer:'return=representation'},body:JSON.stringify(body)});
+      const r=await fetch(`${REST}/prompts`,{method:'POST',headers:{...authHead(),Prefer:'return=representation'},body:JSON.stringify(body)});
       if(!r.ok)throw new Error();
       const created=await r.json();
       adminPrompts.unshift(created[0]);
@@ -804,16 +798,60 @@ $('saveAdminModal').onclick=async()=>{
 
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&adminOverlay.classList.contains('open'))closeAdminModal();});
 
-/* restore admin session if key already stored */
-const _origNavClick=document.querySelectorAll('.pagenav button');
-_origNavClick.forEach(b=>{
-  if(b.dataset.page==='admin'){
-    b.addEventListener('click',()=>{if(adminKey)showAdminPanel();},true);
+/* ---------- auth + boot ---------- */
+async function startApp(session){
+  currentSession=session;
+  const {data:roleRow}=await supabaseClient.from('user_roles').select('role').eq('user_id',session.user.id).maybeSingle();
+  isAdmin=roleRow?.role==='admin';
+  document.getElementById('userEmailDisplay').textContent=session.user.email||'';
+  document.getElementById('userBar').style.display='flex';
+  document.getElementById('loginScreen').style.display='none';
+  const adminBtn=document.querySelector('.pagenav button[data-page="admin"]');
+  if(adminBtn)adminBtn.style.display=isAdmin?'':'none';
+  await loadData();
+  render();
+}
+
+supabaseClient.auth.onAuthStateChange((event,session)=>{
+  if(event==='SIGNED_IN'&&session){currentSession=session;startApp(session);}
+  else if(event==='SIGNED_OUT'){
+    currentSession=null;isAdmin=false;
+    document.getElementById('loginScreen').style.display='flex';
+    document.getElementById('userBar').style.display='none';
+    document.querySelectorAll('.pagenav button').forEach(b=>b.classList.toggle('active',b.dataset.page==='library'));
+    document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id==='page-library'));
   }
 });
 
-/* ---------- boot ---------- */
-(async()=>{await loadData();render();})();
+document.getElementById('signInBtn').addEventListener('click',async()=>{
+  const email=document.getElementById('loginEmail').value.trim().toLowerCase();
+  const msg=document.getElementById('loginMsg');
+  if(!email.endsWith('@accenture.com')){
+    msg.textContent='Only @accenture.com addresses are allowed.';msg.style.color='var(--warn)';msg.style.display='block';return;
+  }
+  const btn=document.getElementById('signInBtn');
+  btn.disabled=true;btn.textContent='Sending…';
+  const {error}=await supabaseClient.auth.signInWithOtp({
+    email,
+    options:{emailRedirectTo:window.location.origin+window.location.pathname}
+  });
+  if(error){
+    msg.textContent='Could not send link. Please try again.';msg.style.color='var(--warn)';msg.style.display='block';
+    btn.disabled=false;btn.textContent='Send magic link';
+  }else{
+    msg.textContent='Check your inbox — a sign-in link is on its way.';msg.style.color='var(--good)';msg.style.display='block';
+    btn.textContent='Link sent';
+  }
+});
+
+document.getElementById('loginEmail').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('signInBtn').click();});
+document.getElementById('signOutBtn').addEventListener('click',()=>supabaseClient.auth.signOut());
+
+(async()=>{
+  const {data:{session}}=await supabaseClient.auth.getSession();
+  if(session){currentSession=session;await startApp(session);}
+  else document.getElementById('loginScreen').style.display='flex';
+})();
 </script>
 </body>
 </html>
