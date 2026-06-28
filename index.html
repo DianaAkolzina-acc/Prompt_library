@@ -444,14 +444,16 @@ async function loadData(){
     return;
   }
   try{
+    const safe=r=>r.ok?r.json():[];
     const [pr,st,fb]=await Promise.all([
-      fetch(`${REST}/prompts?status=eq.approved&select=*&order=created_at.asc`,{headers:authHead()}).then(r=>r.json()),
-      fetch(`${REST}/prompt_rating_stats?select=*`,{headers:authHead()}).then(r=>r.json()),
-      fetch(`${REST}/feedback?select=prompt_id,body,created_at&order=created_at.asc`,{headers:authHead()}).then(r=>r.json())
+      fetch(`${REST}/prompts?status=eq.approved&select=*&order=created_at.asc`,{headers:authHead()}).then(safe),
+      fetch(`${REST}/prompt_rating_stats?select=*`,{headers:authHead()}).then(safe),
+      fetch(`${REST}/feedback?select=prompt_id,body,created_at&order=created_at.asc`,{headers:authHead()}).then(safe)
     ]);
+    if(!Array.isArray(pr))throw new Error('prompts response was not an array');
     prompts=pr.map(p=>({id:p.id,s:p.section,ws:p.workstreams||[],t:p.title,use:p.use_when,sys:p.system_prompt,usr:p.user_template,tags:p.tags||[]}));
-    stats={}; st.forEach(s=>stats[s.prompt_id]={avg:+s.avg,cnt:+s.cnt});
-    feedbackMap={}; fb.forEach(f=>{(feedbackMap[f.prompt_id]=feedbackMap[f.prompt_id]||[]).push({body:f.body,ts:new Date(f.created_at).toLocaleString()});});
+    stats={}; if(Array.isArray(st))st.forEach(s=>stats[s.prompt_id]={avg:+s.avg,cnt:+s.cnt});
+    feedbackMap={}; if(Array.isArray(fb))fb.forEach(f=>{(feedbackMap[f.prompt_id]=feedbackMap[f.prompt_id]||[]).push({body:f.body,ts:new Date(f.created_at).toLocaleString()});});
   }catch(e){
     banner.textContent="Couldn't reach the shared database — showing the bundled copy read-only. Check your connection or config.";
     banner.classList.add('show');
