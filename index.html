@@ -194,20 +194,18 @@
     <h2 style="font-family:var(--display);font-size:26px;font-weight:600;margin:0 0 10px;letter-spacing:-.01em;">Prompt Library</h2>
     <!-- Step 1: email -->
     <div id="loginStep1">
-      <p style="color:var(--muted);font-size:14px;margin:0 0 6px;">Enter your Accenture email to receive a sign-in code.</p>
+      <p id="loginDesc" style="color:var(--muted);font-size:14px;margin:0 0 6px;">Sign in with your Accenture email.</p>
       <p style="color:var(--faint);font-size:12px;font-family:var(--mono);margin:0 0 24px;">@accenture.com addresses only</p>
       <input id="loginEmail" type="email" placeholder="you@accenture.com" autocomplete="email"
         style="width:100%;font-family:var(--mono);font-size:13px;padding:10px 12px;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);margin-bottom:10px;">
-      <button id="signInBtn" class="btn" style="width:100%;padding:12px 24px;font-size:13px;">Send code</button>
-    </div>
-    <!-- Step 2: code entry -->
-    <div id="loginStep2" style="display:none;">
-      <p style="color:var(--muted);font-size:14px;margin:0 0 6px;">Enter the sign-in code sent to</p>
-      <p id="loginEmailDisplay" style="font-family:var(--mono);font-size:13px;color:var(--ink);margin:0 0 20px;word-break:break-all;"></p>
-      <input id="loginCode" type="text" inputmode="numeric" placeholder="enter code" autocomplete="one-time-code"
-        style="width:100%;font-family:var(--mono);font-size:22px;letter-spacing:4px;text-align:center;padding:12px;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);margin-bottom:10px;">
-      <button id="verifyBtn" class="btn" style="width:100%;padding:12px 24px;font-size:13px;">Sign in</button>
-      <button id="backBtn" style="margin-top:10px;background:none;border:none;color:var(--muted);font-size:12px;font-family:var(--mono);cursor:pointer;text-decoration:underline;">Use a different email</button>
+      <input id="loginPassword" type="password" placeholder="password" autocomplete="current-password"
+        style="width:100%;font-family:var(--mono);font-size:13px;padding:10px 12px;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);margin-bottom:10px;">
+      <div id="loginConfirmWrap" style="display:none;">
+        <input id="loginConfirm" type="password" placeholder="confirm password" autocomplete="new-password"
+          style="width:100%;font-family:var(--mono);font-size:13px;padding:10px 12px;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);margin-bottom:10px;">
+      </div>
+      <button id="signInBtn" class="btn" style="width:100%;padding:12px 24px;font-size:13px;">Sign in</button>
+      <button id="toggleModeBtn" style="margin-top:10px;background:none;border:none;color:var(--muted);font-size:12px;font-family:var(--mono);cursor:pointer;text-decoration:underline;">New here? Create an account</button>
     </div>
     <div id="loginMsg" style="margin-top:14px;font-family:var(--mono);font-size:12px;color:var(--muted);display:none;"></div>
   </div>
@@ -866,79 +864,59 @@ supabaseClient.auth.onAuthStateChange(async(event,session)=>{
   }
 });
 
-let pendingEmail='';
+let loginMode='signin';
+
+document.getElementById('toggleModeBtn').addEventListener('click',()=>{
+  loginMode=loginMode==='signin'?'signup':'signin';
+  const isSignup=loginMode==='signup';
+  document.getElementById('loginConfirmWrap').style.display=isSignup?'block':'none';
+  document.getElementById('signInBtn').textContent=isSignup?'Create account':'Sign in';
+  document.getElementById('toggleModeBtn').textContent=isSignup?'Already have an account? Sign in':'New here? Create an account';
+  document.getElementById('loginDesc').textContent=isSignup?'Create an account with your Accenture email.':'Sign in with your Accenture email.';
+  const pw=document.getElementById('loginPassword');
+  pw.setAttribute('autocomplete',isSignup?'new-password':'current-password');
+  pw.setAttribute('placeholder',isSignup?'choose a password (8+ chars)':'password');
+  document.getElementById('loginMsg').style.display='none';
+});
 
 document.getElementById('signInBtn').addEventListener('click',async()=>{
   const email=document.getElementById('loginEmail').value.trim().toLowerCase();
+  const password=document.getElementById('loginPassword').value;
+  const confirm=document.getElementById('loginConfirm').value;
   const msg=document.getElementById('loginMsg');
   msg.style.display='none';
   if(!email.endsWith('@accenture.com')){
     msg.textContent='Only @accenture.com addresses are allowed.';msg.style.color='var(--warn)';msg.style.display='block';return;
   }
+  if(password.length<8){
+    msg.textContent='Password must be at least 8 characters.';msg.style.color='var(--warn)';msg.style.display='block';return;
+  }
+  if(loginMode==='signup'&&password!==confirm){
+    msg.textContent='Passwords do not match.';msg.style.color='var(--warn)';msg.style.display='block';return;
+  }
   const btn=document.getElementById('signInBtn');
-  btn.disabled=true;btn.textContent='Sending…';
-  const {error}=await supabaseClient.auth.signInWithOtp({email});
-  if(error){
-    msg.textContent='Could not send code. Please try again.';msg.style.color='var(--warn)';msg.style.display='block';
-    btn.disabled=false;btn.textContent='Send code';
-  }else{
-    pendingEmail=email;
-    document.getElementById('loginStep1').style.display='none';
-    document.getElementById('loginEmailDisplay').textContent=email;
-    document.getElementById('loginStep2').style.display='block';
-    document.getElementById('loginCode').focus();
-  }
-});
-
-document.getElementById('verifyBtn').addEventListener('click',async()=>{
-  const code=document.getElementById('loginCode').value.trim();
-  const msg=document.getElementById('loginMsg');
-  msg.style.display='none';
-  if(!code||code.length<4){
-    msg.textContent='Enter the sign-in code from your email.';msg.style.color='var(--warn)';msg.style.display='block';return;
-  }
-  const btn=document.getElementById('verifyBtn');
-  btn.disabled=true;btn.textContent='Verifying…';
-  // Supabase logs show signInWithOtp as 'user_recovery_requested' for existing users
-  // so the correct verifyOtp type is 'recovery'. Try all three types in sequence.
-  const types=['recovery','email','magiclink'];
-  let lastError=null;
-  for(const type of types){
-    const timeout=new Promise(res=>setTimeout(()=>res({data:null,error:{message:'timeout'}}),6000));
-    const attempt=supabaseClient.auth.verifyOtp({email:pendingEmail,token:code,type});
-    const {data,error}=await Promise.race([attempt,timeout]);
-    if(!error){
-      // Verification accepted — poll for session
-      for(let i=0;i<20;i++){
-        const {data:{session}}=await supabaseClient.auth.getSession();
-        if(session){await startApp(session);return;}
-        await new Promise(r=>setTimeout(r,500));
-      }
-      msg.textContent='Signed in but session not found — please reload.';
-      msg.style.color='var(--warn)';msg.style.display='block';
-      btn.disabled=false;btn.textContent='Sign in';
-      return;
+  btn.disabled=true;btn.textContent=loginMode==='signup'?'Creating…':'Signing in…';
+  if(loginMode==='signup'){
+    const {error}=await supabaseClient.auth.signUp({email,password});
+    if(error){
+      msg.textContent=error.message;msg.style.color='var(--warn)';msg.style.display='block';
+      btn.disabled=false;btn.textContent='Create account';return;
     }
-    lastError=error;
-    if(error.message==='timeout')break; // network hung — don't retry
   }
-  msg.textContent=(lastError?.message==='timeout'?'Request timed out — check connection.':lastError?.message)||'Invalid or expired code.';
-  msg.style.color='var(--warn)';msg.style.display='block';
-  btn.disabled=false;btn.textContent='Sign in';
+  const {data,error}=await supabaseClient.auth.signInWithPassword({email,password});
+  if(error){
+    msg.textContent=loginMode==='signup'?'Account created — please sign in.':'Incorrect email or password.';
+    msg.style.color='var(--warn)';msg.style.display='block';
+    if(loginMode==='signup'){loginMode='signin';btn.textContent='Sign in';}
+    else{btn.disabled=false;btn.textContent='Sign in';}
+    return;
+  }
+  if(data.session)await startApp(data.session);
 });
 
-document.getElementById('backBtn').addEventListener('click',()=>{
-  pendingEmail='';
-  document.getElementById('loginStep2').style.display='none';
-  document.getElementById('loginStep1').style.display='block';
-  document.getElementById('loginCode').value='';
-  document.getElementById('loginMsg').style.display='none';
-  const btn=document.getElementById('signInBtn');
-  btn.disabled=false;btn.textContent='Send code';
-});
-
-document.getElementById('loginEmail').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('signInBtn').click();});
-document.getElementById('loginCode').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('verifyBtn').click();});
+document.getElementById('loginEmail').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('loginPassword').focus();});
+document.getElementById('loginPassword').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('signInBtn').click();});
+document.getElementById('loginConfirm').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('signInBtn').click();});
 document.getElementById('signOutBtn').addEventListener('click',()=>supabaseClient.auth.signOut());
 
 (async()=>{
