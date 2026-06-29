@@ -214,7 +214,23 @@
   <div class="hero-inner">
     <div id="userBar" style="display:none;justify-content:flex-end;align-items:center;gap:12px;margin-bottom:10px;">
       <span id="userEmailDisplay" style="font-family:var(--mono);font-size:12px;color:var(--muted);"></span>
+      <button id="changePwBtn" class="btn ghost" style="font-size:11px;padding:5px 12px;">Change password</button>
       <button id="signOutBtn" class="btn ghost" style="font-size:11px;padding:5px 12px;">Sign out</button>
+    </div>
+    <!-- Change password modal -->
+    <div id="changePwModal" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.4);align-items:center;justify-content:center;">
+      <div style="background:var(--surface);border:1px solid var(--line-strong);padding:32px;max-width:340px;width:100%;text-align:left;">
+        <h3 style="font-size:15px;font-weight:600;margin:0 0 20px;">Change password</h3>
+        <input id="newPw1" type="password" placeholder="new password (8+ characters)" autocomplete="new-password"
+          style="width:100%;font-family:var(--mono);font-size:13px;padding:10px 12px;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);margin-bottom:10px;">
+        <input id="newPw2" type="password" placeholder="confirm new password" autocomplete="new-password"
+          style="width:100%;font-family:var(--mono);font-size:13px;padding:10px 12px;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink);margin-bottom:10px;">
+        <div id="changePwMsg" style="font-family:var(--mono);font-size:12px;margin-bottom:10px;display:none;"></div>
+        <div style="display:flex;gap:8px;">
+          <button id="changePwSaveBtn" class="btn" style="flex:1;font-size:13px;padding:10px;">Save</button>
+          <button id="changePwCancelBtn" class="btn ghost" style="font-size:13px;padding:10px;">Cancel</button>
+        </div>
+      </div>
     </div>
     <div class="eyebrow">Rolls-Royce · AI Prompt Library</div>
     <h1>Reusable prompts for your work on the account.</h1>
@@ -918,6 +934,38 @@ document.getElementById('loginEmail').addEventListener('keydown',e=>{if(e.key===
 document.getElementById('loginPassword').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('signInBtn').click();});
 document.getElementById('loginConfirm').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('signInBtn').click();});
 document.getElementById('signOutBtn').addEventListener('click',()=>supabaseClient.auth.signOut());
+
+// ── Change password ───────────────────────────────────────────────
+document.getElementById('changePwBtn').addEventListener('click',()=>{
+  document.getElementById('newPw1').value='';
+  document.getElementById('newPw2').value='';
+  document.getElementById('changePwMsg').style.display='none';
+  document.getElementById('changePwModal').style.display='flex';
+  document.getElementById('newPw1').focus();
+});
+document.getElementById('changePwCancelBtn').addEventListener('click',()=>{
+  document.getElementById('changePwModal').style.display='none';
+});
+document.getElementById('changePwSaveBtn').addEventListener('click',async()=>{
+  const pw1=document.getElementById('newPw1').value;
+  const pw2=document.getElementById('newPw2').value;
+  const msg=document.getElementById('changePwMsg');
+  msg.style.display='none';
+  if(pw1.length<8){msg.textContent='Password must be at least 8 characters.';msg.style.color='var(--warn)';msg.style.display='block';return;}
+  if(pw1!==pw2){msg.textContent='Passwords do not match.';msg.style.color='var(--warn)';msg.style.display='block';return;}
+  const btn=document.getElementById('changePwSaveBtn');
+  btn.disabled=true;btn.textContent='Saving…';
+  const {error}=await supabaseClient.auth.updateUser({password:pw1});
+  if(error){
+    msg.textContent=error.message;msg.style.color='var(--warn)';msg.style.display='block';
+    btn.disabled=false;btn.textContent='Save';
+  }else{
+    msg.textContent='Password updated successfully.';msg.style.color='var(--accent)';msg.style.display='block';
+    btn.disabled=false;btn.textContent='Save';
+    setTimeout(()=>document.getElementById('changePwModal').style.display='none',1500);
+  }
+});
+document.getElementById('newPw2').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('changePwSaveBtn').click();});
 
 (async()=>{
   const {data:{session}}=await supabaseClient.auth.getSession();
